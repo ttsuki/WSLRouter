@@ -81,13 +81,22 @@ namespace pcappp
         return ret;
     }
 
-    static inline std::optional<adapter_info> find_adapter_from_ip(std::string_view ip)
+    static inline std::optional<adapter_info> find_adapter_from_ip(const char* ip)
     {
         for (auto& [pc, ai] : pcappp::get_all_adapters())
             if (ai)
                 for (auto a = &ai->IpAddressList; a; a = a->Next)
                     if (a->IpAddress.String == ip)
                         return adapter_info{pc, ai};
+
+        return std::nullopt;
+    }
+
+    static inline std::optional<adapter_info> find_adapter_from_mac(const std::byte mac[6])
+    {
+        for (auto& [pc, ai] : pcappp::get_all_adapters())
+            if (ai && memcmp(ai->Address, mac, 6) == 0)
+                return adapter_info{pc, ai};
 
         return std::nullopt;
     }
@@ -211,4 +220,9 @@ namespace pcappp
     static_assert(sizeof(ipv6_header) == 40);
     static_assert(sizeof(tcp_header) == 20);
     static_assert(sizeof(udp_header) == 8);
+
+    static inline u_short get_ether_type(const ethernet_header& eh)
+    {
+        return static_cast<u_int16_t>(static_cast<u_int16_t>(eh.ethertype[0]) << 8 | static_cast<u_int16_t>(eh.ethertype[1]));
+    }
 }
