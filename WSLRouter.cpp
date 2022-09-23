@@ -29,15 +29,15 @@ namespace app
 {
     int show_adapters();
     int packet_monitor();
-    int packet_router();
+    int packet_router(int argc, const char* argv[]);
 }
 
 // entry point
-int main()
+int main(int argc, const char* argv[])
 {
     //return app::show_adapters();
     //return app::packet_monitor();
-    return app::packet_router();
+    return app::packet_router(argc, argv);
 }
 
 namespace app
@@ -170,16 +170,33 @@ namespace app
         return 0;
     }
 
-    int packet_router()
+    int packet_router(int argc, const char* argv[])
     {
         // NAT Config
-        const auto frontend_ip = parse_ipv4("10.1.1.223");             // Windows Physical (front-end)
-        const auto frontend_adapter = parse_mac("00:00:5E:00:53:AF");  // Windows Physical (front-end)
-        const auto internal_adapter = parse_mac("00:15:5D:F2:CF:6E");  // Windows vEthernet (WSL)
-        const auto internal_next_hop = parse_mac("00:15:5D:E9:A8:CE"); // Next hop for Target server (WSL eth0)
-        const auto internal_server_ip = parse_ipv4("192.168.49.2");    // Target server ip address
-        const auto inbound_filter = "ip dst host 10.1.1.223 and udp dst port 7777";
-        const auto outbound_filter = "ip src host 192.168.49.2 and udp src port 7777";
+        auto frontend_ip = parse_ipv4("10.1.1.223");             // Windows Physical (front-end)
+        auto frontend_adapter = parse_mac("00:00:5E:00:53:AF");  // Windows Physical (front-end)
+        auto internal_adapter = parse_mac("00:15:5D:F2:CF:6E");  // Windows vEthernet (WSL)
+        auto internal_next_hop = parse_mac("00:15:5D:E9:A8:CE"); // Next hop for Target server (WSL eth0)
+        auto internal_server_ip = parse_ipv4("192.168.49.2");    // Target server ip address
+        auto inbound_filter = std::string("ip dst host 10.1.1.223 and udp dst port 7777");
+        auto outbound_filter = std::string("ip src host 192.168.49.2 and udp src port 7777");
+
+        for (int i = 1; i < argc; i++)
+        {
+            using namespace std::string_view_literals;
+            if (argv[i] == "--frontend_ip"sv && argc > i + 1) frontend_ip = parse_ipv4(argv[++i]);
+            else if (argv[i] == "--frontend_adapter"sv && argc > i + 1) frontend_adapter = parse_mac(argv[++i]);
+            else if (argv[i] == "--internal_adapter"sv && argc > i + 1) internal_adapter = parse_mac(argv[++i]);
+            else if (argv[i] == "--internal_next_hop"sv && argc > i + 1) internal_next_hop = parse_mac(argv[++i]);
+            else if (argv[i] == "--internal_server_ip"sv && argc > i + 1) internal_server_ip = parse_ipv4(argv[++i]);
+            else if (argv[i] == "--inbound_filter"sv && argc > i + 1) inbound_filter = argv[++i];
+            else if (argv[i] == "--outbound_filter"sv && argc > i + 1) outbound_filter = argv[++i];
+            else
+            {
+                std::cerr << argv[0] << ": Invalid argument: " << argv[i];
+                return 1;
+            }
+        }
 
         //
         //                   [Client] <( send to 10.1.1.223:7777/udp )
