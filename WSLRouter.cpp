@@ -39,8 +39,9 @@ int main(int argc, const char* argv[])
 {
     try
     {
-        //return app::show_adapters();
-        //return app::packet_monitor();
+        using namespace std::string_view_literals;
+        if (argc > 1 && argv[1] == "show-adapters"sv) return app::show_adapters();
+        if (argc > 1 && argv[1] == "packet-monitor"sv) return app::packet_monitor();
         return app::packet_router(argc, argv);
     }
     catch (const std::exception& e)
@@ -424,15 +425,19 @@ namespace app
         int i = 0;
         for (auto [pc, ai] : adapters)
         {
-            cout << "[" << i << "] ";
-            cout << pc->name;
+            std::stringstream s;
+            s << "[" << i << "] ";
+            s << pc->name;
             if (ai)
             {
+                s << " MAC=" << load_u<mac_address>(ai->Address);
                 for (auto ip = &ai->IpAddressList; ip; ip = ip->Next)
-                    cout << " " << ip->IpAddress.String;
-                cout << " " << ai->Description;
+                    s << " IP=" << ip->IpAddress.String;
+                s << " DESCRIPTION=" << ai->Description;
             }
-            cout << "\n";
+            s << "\n";
+
+            cout << s.str();
             i++;
         }
     }
