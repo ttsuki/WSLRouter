@@ -22,15 +22,17 @@ To work around this, you need to
 ### Sample configuration:
 
 ```cpp
-
-// NAT Config
-const auto frontend_ip = parse_ipv4("10.1.1.223");             // Windows Physical (front-end)
-const auto frontend_adapter = parse_mac("00:00:5E:00:53:AF");  // Windows Physical (front-end)
-const auto internal_adapter = parse_mac("00:15:5D:F2:CF:6E");  // Windows vEthernet (WSL)
-const auto internal_next_hop = parse_mac("00:15:5D:E9:A8:CE"); // Next hop for Target server (WSL eth0)
-const auto internal_server_ip = parse_ipv4("192.168.49.2");    // Target server ip address
-const auto inbound_filter = R"(ip dst host 10.1.1.223 and udp dst port 7777)";
-const auto outbound_filter = R"(ip src host 192.168.49.2 and udp src port 7777)";
+// std::map<std::string, const char*>
+auto command_line_options = std::get<0>(parse_command_line_args(
+    argc, argv, {
+        {"--frontend-ip", nullptr},        // Windows Physical (front-end)            e.g. "10.1.1.123"
+        {"--frontend-adapter", nullptr},   // Windows Physical MAC address(front-end) e.g. "00:00:5E:00:53:AF"
+        {"--internal-adapter", nullptr},   // Windows vEthernet MAC address(WSL)      e.g. "00:15:5D:F2:CF:6E"
+        {"--internal-next-hop", nullptr},  // Next hop MAC address (WSL eth0)         e.g. "00:15:5D:E0:A8:CE"
+        {"--internal-server-ip", nullptr}, // Target server ip address                e.g. "192.168.49.2"
+        {"--inbound-filter", nullptr},     // Packet filter expression                e.g. "ip dst host 10.1.1.123 and udp dst port 7777"
+        {"--outbound-filter", nullptr},    // Packet filter expression                e.g. "ip src host 192.168.49.2 and udp src port 7777"
+    }));
 
 //
 //                   [Client] <( send to 10.1.1.223:7777/udp )
@@ -39,18 +41,18 @@ const auto outbound_filter = R"(ip src host 192.168.49.2 and udp src port 7777)"
 //      Physical |---+---+-----------| 10.1.1.0/24
 //                   |
 //                   | Physical (frontend)
-//                   | 10.1.1.223         <- frontend_ip
-//                   | 00:00:5E:00:53:AF  <- frontend_adapter
+//                   | 10.1.1.123         <- --frontend-ip
+//                   | 00:00:5E:00:53:AF  <- --frontend-adapter
 // +-------------- [Windows] --------------------------------------------+
 // |                     | Internal (vEthernet (WSL))
-// |                     | 192.168.0.1/24
-// |                     | 00:15:5D:F2:CF:6E  <- internal_adapter
+// |                     | 192.168.252.1/24
+// |                     | 00:15:5D:F2:CF:6E  <- --internal-adapter
 // |                     |
-// |    Hyper-V  |---+---+-----------| 172.17.240.0/20
+// |    Hyper-V  |---+---+-----------| 192.168.252.0/24
 // |                 |
 // |                 | eth0
-// |                 | 192.168.0.101/24
-// |                 | 00:15:5D:E0:A8:CE  <- internal_next_hop
+// |                 | 192.168.252.101/24
+// |                 | 00:15:5D:E0:A8:CE  <- --internal-next-hop
 // | +-------- [WSL2 Ubuntu] (with ip forwarding) ----------------------+
 // | |                   | br-xxxxxxxxxxxx
 // | |                   | 192.168.49.1

@@ -16,6 +16,8 @@
 #include <string>
 #include <iomanip>
 #include <iostream>
+#include <map>
+#include <set>
 #include <sstream>
 
 #include "pcappp.h"
@@ -35,9 +37,70 @@ namespace app
 // entry point
 int main(int argc, const char* argv[])
 {
-    //return app::show_adapters();
-    //return app::packet_monitor();
-    return app::packet_router(argc, argv);
+    try
+    {
+        //return app::show_adapters();
+        //return app::packet_monitor();
+        return app::packet_router(argc, argv);
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "ABORT. An Exception is thrown: " << typeid(e).name() << ": " << e.what() << "\n";
+        return 1;
+    }
+}
+
+// command line arguments parser
+namespace app
+{
+    struct command_line_parameter_error : std::runtime_error
+    {
+        using std::runtime_error::runtime_error;
+    };
+
+    static auto parse_command_line_args(
+        int argc, const char* argv[],
+        std::map<std::string, const char*, std::less<>> named = {},
+        std::vector<const char*> ordinal = {})
+    -> std::tuple<decltype(named), decltype(ordinal)>
+    {
+        using namespace std::string_literals;
+        auto already_set = std::set<std::string>{};
+        auto ordinal_set = size_t{};
+
+        for (int i = 1; i < argc; i++)
+        {
+            const char* v = argv[i];
+
+            if (std::string_view(v).find("--") == 0)
+            {
+                std::string k;
+                if (auto eq = std::string_view(v).find('='); eq != std::string_view::npos)
+                {
+                    k = std::string(argv[i], eq);
+                    v += eq + 1;
+                }
+                else
+                {
+                    k = argv[i];
+                    v = argv[++i];
+                }
+
+                auto it = named.find(k);
+                if (it == named.end()) throw command_line_parameter_error("unknown option: "s + k);
+                if (already_set.count(k)) throw command_line_parameter_error("already set: "s + k);
+                it->second = v ? v : throw command_line_parameter_error("missing value for: "s + k);
+                already_set.insert(k);
+            }
+            else
+            {
+                if (ordinal_set >= ordinal.size()) throw command_line_parameter_error("too many arguments: "s + v);
+                ordinal[ordinal_set++] = v;
+            }
+        }
+
+        return std::make_pair(named, ordinal);
+    }
 }
 
 namespace app
@@ -84,8 +147,11 @@ namespace app
 
     static inline mac_address parse_mac(const char* address)
     {
+        std::string addr = address;
+        for (char& c : addr) if (c == '-') c = ':';
+
         int tmp[6]{};
-        if (::sscanf_s(address, "%02x:%02x:%02x:%02x:%02x:%02x", &tmp[0], &tmp[1], &tmp[2], &tmp[3], &tmp[4], &tmp[5]) == 6 &&
+        if (::sscanf_s(addr.c_str(), "%02x:%02x:%02x:%02x:%02x:%02x", &tmp[0], &tmp[1], &tmp[2], &tmp[3], &tmp[4], &tmp[5]) == 6 &&
             ((tmp[0] | tmp[1] | tmp[2] | tmp[3] | tmp[4] | tmp[5]) & ~0xFF) == 0)
         {
             return mac_address{
@@ -118,6 +184,7 @@ namespace app
         }
     };
 
+
     static void show_adapters(std::ostream& cout, const std::vector<pcappp::adapter_info>& adapters);
     static void dump_packet_header(std::ostream& cout, std::string_view label, const void* pkt_data, size_t length, timeval timestamp);
 
@@ -142,8 +209,8 @@ namespace app
 
             if (all_devices.empty())
             {
-                std::cerr << "no device." << std::endl;
-                throw 1;
+                std::cerr << "no network interface devices." << std::endl;
+                throw std::runtime_error("no network interface devices.");
             }
 
             size_t i{};
@@ -153,7 +220,7 @@ namespace app
             if (i >= all_devices.size())
             {
                 std::cerr << "index out of range." << std::endl;
-                throw 1;
+                throw std::runtime_error("index out of range.");
             }
 
             return all_devices[i].pcap_if->name;
@@ -172,31 +239,17 @@ namespace app
 
     int packet_router(int argc, const char* argv[])
     {
-        // NAT Config
-        auto frontend_ip = parse_ipv4("10.1.1.223");             // Windows Physical (front-end)
-        auto frontend_adapter = parse_mac("00:00:5E:00:53:AF");  // Windows Physical (front-end)
-        auto internal_adapter = parse_mac("00:15:5D:F2:CF:6E");  // Windows vEthernet (WSL)
-        auto internal_next_hop = parse_mac("00:15:5D:E9:A8:CE"); // Next hop for Target server (WSL eth0)
-        auto internal_server_ip = parse_ipv4("192.168.49.2");    // Target server ip address
-        auto inbound_filter = std::string("ip dst host 10.1.1.223 and udp dst port 7777");
-        auto outbound_filter = std::string("ip src host 192.168.49.2 and udp src port 7777");
-
-        for (int i = 1; i < argc; i++)
-        {
-            using namespace std::string_view_literals;
-            if (argv[i] == "--frontend_ip"sv && argc > i + 1) frontend_ip = parse_ipv4(argv[++i]);
-            else if (argv[i] == "--frontend_adapter"sv && argc > i + 1) frontend_adapter = parse_mac(argv[++i]);
-            else if (argv[i] == "--internal_adapter"sv && argc > i + 1) internal_adapter = parse_mac(argv[++i]);
-            else if (argv[i] == "--internal_next_hop"sv && argc > i + 1) internal_next_hop = parse_mac(argv[++i]);
-            else if (argv[i] == "--internal_server_ip"sv && argc > i + 1) internal_server_ip = parse_ipv4(argv[++i]);
-            else if (argv[i] == "--inbound_filter"sv && argc > i + 1) inbound_filter = argv[++i];
-            else if (argv[i] == "--outbound_filter"sv && argc > i + 1) outbound_filter = argv[++i];
-            else
-            {
-                std::cerr << argv[0] << ": Invalid argument: " << argv[i];
-                return 1;
-            }
-        }
+        // std::map<std::string, const char*>
+        auto command_line_options = std::get<0>(parse_command_line_args(
+            argc, argv, {
+                {"--frontend-ip", nullptr},        // Windows Physical (front-end)            e.g. "10.1.1.123"
+                {"--frontend-adapter", nullptr},   // Windows Physical MAC address(front-end) e.g. "00:00:5E:00:53:AF"
+                {"--internal-adapter", nullptr},   // Windows vEthernet MAC address(WSL)      e.g. "00:15:5D:F2:CF:6E"
+                {"--internal-next-hop", nullptr},  // Next hop MAC address (WSL eth0)         e.g. "00:15:5D:E0:A8:CE"
+                {"--internal-server-ip", nullptr}, // Target server ip address                e.g. "192.168.49.2"
+                {"--inbound-filter", nullptr},     // Packet filter expression                e.g. "ip dst host 10.1.1.123 and udp dst port 7777"
+                {"--outbound-filter", nullptr},    // Packet filter expression                e.g. "ip src host 192.168.49.2 and udp src port 7777"
+            }));
 
         //
         //                   [Client] <( send to 10.1.1.223:7777/udp )
@@ -205,18 +258,18 @@ namespace app
         //      Physical |---+---+-----------| 10.1.1.0/24
         //                   |
         //                   | Physical (frontend)
-        //                   | 10.1.1.223         <- frontend_ip
-        //                   | 00:00:5E:00:53:AF  <- frontend_adapter
+        //                   | 10.1.1.123         <- --frontend-ip
+        //                   | 00:00:5E:00:53:AF  <- --frontend-adapter
         // +-------------- [Windows] --------------------------------------------+
         // |                     | Internal (vEthernet (WSL))
-        // |                     | 192.168.0.1/24
-        // |                     | 00:15:5D:F2:CF:6E  <- internal_adapter
+        // |                     | 192.168.252.1/24
+        // |                     | 00:15:5D:F2:CF:6E  <- --internal-adapter
         // |                     |
-        // |    Hyper-V  |---+---+-----------| 172.17.240.0/20
+        // |    Hyper-V  |---+---+-----------| 192.168.252.0/24
         // |                 |
         // |                 | eth0
-        // |                 | 192.168.0.101/24
-        // |                 | 00:15:5D:E0:A8:CE  <- internal_next_hop
+        // |                 | 192.168.252.101/24
+        // |                 | 00:15:5D:E0:A8:CE  <- --internal-next-hop
         // | +-------- [WSL2 Ubuntu] (with ip forwarding) ----------------------+
         // | |                   | br-xxxxxxxxxxxx
         // | |                   | 192.168.49.1
@@ -231,6 +284,16 @@ namespace app
         // | |                  [[[Containers]]] (Cluster-IPs)
         // | |
         // | |
+
+        // NAT Config
+        for (auto& [k, v] : command_line_options) if (!v) throw command_line_parameter_error("missing option: " + k);
+        const auto frontend_ip = parse_ipv4(command_line_options.at("--frontend-ip"));               // Frontend IP address
+        const auto frontend_adapter = parse_mac(command_line_options.at("--frontend-adapter"));      // Frontend MAC address
+        const auto internal_adapter = parse_mac(command_line_options.at("--internal-adapter"));      // Windows vEthernet (WSL) MAC address
+        const auto internal_next_hop = parse_mac(command_line_options.at("--internal-next-hop"));    // WSL eth0 MAC address
+        const auto internal_server_ip = parse_ipv4(command_line_options.at("--internal-server-ip")); // Target server IP address
+        const auto inbound_filter = command_line_options.at("--inbound-filter");
+        const auto outbound_filter = command_line_options.at("--outbound-filter");
 
         const auto frontend_adapter_interface = pcappp::find_adapter_from_mac(reinterpret_cast<const std::byte*>(&frontend_adapter));
         const auto internal_adapter_interface = pcappp::find_adapter_from_mac(reinterpret_cast<const std::byte*>(&internal_adapter));
@@ -263,6 +326,7 @@ namespace app
         };
 
         // inbound thread
+        std::cout << "Starting wan_to_lan_thread... " << "\n";
         auto wan_to_lan_thread = std::thread([&]
         {
             std::vector<u_char> buffer{};
@@ -304,6 +368,7 @@ namespace app
         });
 
         // outbound thread
+        std::cout << "Starting lan_to_wan_thread... " << "\n";
         auto lan_to_wan_thread = std::thread([&]
         {
             std::vector<u_char> buffer{};
@@ -346,6 +411,7 @@ namespace app
             });
         });
 
+        std::cout << "Ready." << "\n";
         lan_to_wan_thread.join();
         wan_to_lan_thread.join();
 
